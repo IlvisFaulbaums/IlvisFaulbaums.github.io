@@ -157,7 +157,9 @@ async function bgRemoval() {
 }
 
 //////////////ONNX ENDS/////////////////
-
+function isMobile() {
+    return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|Windows Phone/i.test(navigator.userAgent);
+}
 
         // Log function to display messages
         function logMessage(message) {
@@ -166,12 +168,27 @@ async function bgRemoval() {
         }
 
         // Access the webcam
-        async function startVideoStream() {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video1.srcObject = stream;
-            processFrame();
-        }
+//        async function startVideoStream() {
+  //          const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    //        video1.srcObject = stream;
+      //      processFrame();
+        //}
+async function startVideoStream() {
+    const constraints = {
+        video: isMobile() ? { facingMode: { exact: "environment" } } : true  // Use rear camera for mobile, default webcam for desktop
+    };
+    
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints);
+        video1.srcObject = stream;
+        processFrame(); // Start processing frames once video starts
+    } catch (err) {
+        console.error('Error accessing the camera: ', err);
+    }
+}
 
+
+	    
 const canvas2 = document.getElementById('canvasZY');
 const ctx2 = canvas2.getContext('2d');
 
