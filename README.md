@@ -1,12 +1,10 @@
 ## Third-Party Libraries
 
 This project uses the following third-party libraries:
-
 ### u2net.onnx
-- **Copyright**: (C) [year] [author/organization]
-- **License**: [link to the license, if applicable]
-- **Description**: u2net.onnx is a pre-trained model for image segmentation tasks. 
-
+- **Copyright**: (C) 2020 Qin, Xuebin; Zhang, Zichen; Huang, Chenyang; Dehghan, Masood; Zaiane, Osmar; Jagersand, Martin
+- **License**: MIT License
+- **Description**: u2net.onnx is a pre-trained model for image segmentation tasks.
 ### three.js
 - **Copyright**: (C) 2010-2022 three.js authors (https://threejs.org/)
 - **License**: [MIT License](https://opensource.org/licenses/MIT)
