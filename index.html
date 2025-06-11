@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Skeneris ar vizualizāciju</title>
+    <style>
+        canvas { border: 1px solid black; }
+        #threeContainer { width: 100%; height: 400px; }
+        #log { margin-top: 10px; font-family: Arial, sans-serif; background-color: #f0f0f0; padding: 10px; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+    <text  style="font-size:2em;" >3d skeneris.</text>
+    <video id="video1" autoplay width="128" height="128"></video>	<canvas id="canvasZY" width="128" height="128"></canvas> <!-- ZY Image -->		<canvas id="canvasOnnx" width="128" height="128"></canvas> <!-- ZY Image -->
+
+
+	<canvas id="canvas1" width="0" height="0"></canvas><canvas id="canvas2" width="0" height="0"></canvas>
+    <br>
+    <label for="thresholdSlider">Punktu lielums: </label>
+    <input type="range" id="thresholdSlider" min="0.5" max="10" value="5">
+    <br>
+    <button id="xyButton">XY</button>
+    <button id="zyButton">ZY</button>
+	
+    <button id="downloadButton">Lejupielādēt & Vizualizēt Punktu Mākoni</button>
+    <!-- <button id="newPointCloudButton">Jauns punktu mākonis</button> -->
+    <!-- <button id="invertButton">Pretējās krāsas</button> -->
+    <!-- Log Section -->
+    <div id="log">Info:</div>
+    <!-- Container for Three.js Visualization -->
+    <div id="threeContainer"></div>
+    
+
+
+    <script src="https://cdn.jsdelivr.net/npm/three@0.130.0/build/three.min.js"></script>
+        <!-- Import ONNXRuntime Web from CDN -->
+        <script src="https://code.jquery.com/jquery-3.3.1.min.js"></script>
+      <!--   <script src="ort_biblene/ort.min.js" defer></script>-->
+	<!-- var arii njemt no online -->
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@latest/dist/ort.min.js" defer></script>
+	
+    <script>
+	
+	
+
+	
+	
+        // Get references to DOM elements
+        const video1 = document.getElementById('video1');
+        const canvas1 = document.getElementById('canvas1');
+        const ctx1 = canvas1.getContext('2d');
+        const xyButton = document.getElementById('xyButton');
+        const zyButton = document.getElementById('zyButton');
+        const downloadButton = document.getElementById('downloadButton');
+        const newPointCloudButton = document.getElementById('newPointCloudButton');
+        const invertButton = document.getElementById('invertButton');
+        const thresholdSlider = document.getElementById('thresholdSlider');
+        const threeContainer = document.getElementById('threeContainer');
+        const log = document.getElementById('log');
+		const finalCanvas = document.getElementById("canvasOnnx");
+		const finalCtx = finalCanvas.getContext("2d");
+        let pointsXY = [];
+        let pointsZY = [];
+        let commonPoints = [];
+        let isInverted = false;
+        let scene, camera, renderer, pointCloud;
+/////////////////ONNX///////////////////
+let session;
+
+window.onload = async function() {
+    session = await ort.InferenceSession.create('./u2netp_128.onnx', {
+        executionProviders: ['wasm'] // Use WASM backend for speed
+    });
+    console.log("Model loaded successfully");
+};
+
+// Function to invert colors
+async function bgRemoval() {
+    if (!session) {
+        console.error("ONNX model is not loaded yet.");
+        return;
+    }
+
+    const canvas = document.getElementById("canvasZY");
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx.getImageData(0, 0, 128, 128);  // Get ImageData from canvas2
+
+    // Create a temporary offscreen canvas for resizing
+    const offscreenCanvas = document.createElement('canvas');
+    const offscreenCtx = offscreenCanvas.getContext('2d');
+    offscreenCanvas.width = 128;  // Original size
+    offscreenCanvas.height = 128;
+
+    // Draw the 128x128 ImageData onto the offscreen canvas
+    offscreenCtx.putImageData(imageData, 0, 0);
+    
+    // Create a resized canvas for 128x128
+    const resizedCanvas = document.createElement('canvas');
+    const resizedCtx = resizedCanvas.getContext('2d');
+    resizedCanvas.width = 128;
+    resizedCanvas.height = 128;
+    resizedCtx.drawImage(offscreenCanvas, 0, 0, 128, 128, 0, 0, 128, 128);  // No actual resizing needed
+
+    // Get 128x128 image data
+    const resizedImageData = resizedCtx.getImageData(0, 0, 128, 128).data;
+
+    // Create a Float32Array for the 128x128 image data
+    const floatArr = new Float32Array(128 * 128 * 3); // Combined array for 3 channels
+    for (let i = 0, j = 0; i < resizedImageData.length; i += 4, j++) {
+        floatArr[j] = (resizedImageData[i] / 255 - 0.485) / 0.229; // Red channel
+        floatArr[j + 16384] = (resizedImageData[i + 1] / 255 - 0.456) / 0.224; // Green channel
+        floatArr[j + 32768] = (resizedImageData[i + 2] / 255 - 0.406) / 0.225; // Blue channel
+    }
+
+    // Create ONNX tensor with the scaled data
+    const inputTensor = new ort.Tensor('float32', floatArr, [1, 3, 128, 128]);
+
+    // Prepare feeds for the model
+    const feeds = { "input.1": inputTensor };
+
+    // Run ONNX inference
+    const results = await session.run(feeds);
+    const pred = Object.values(results)[0]; // Get the prediction
+
+    // Convert prediction to binary (black and white) with white background
+    const intermediateCanvas = document.createElement('canvas');
+    const intermediateCtx = intermediateCanvas.getContext('2d');
+    intermediateCanvas.width = 128;
+    intermediateCanvas.height = 128;
+    const myImageData = intermediateCtx.createImageData(128, 128);
+    const minVal = Math.min(...pred.data);  // Find the minimum value in prediction
+    const maxVal = Math.max(...pred.data);  // Find the maximum value in prediction
+
+    // Threshold calculation
+    const threshold = (maxVal - minVal) * 0.5 + minVal;  // Middle value for binarization
+
+    for (let i = 0; i < pred.data.length; i++) {
+        const value = pred.data[i];
+        const color = value < threshold ? 255 : 0;  // Black for values below threshold, White for others
+        myImageData.data[i * 4] = color;        // Red
+        myImageData.data[i * 4 + 1] = color;    // Green
+        myImageData.data[i * 4 + 2] = color;    // Blue
+        myImageData.data[i * 4 + 3] = 255;      // Full opacity
+    }
+
+    // Put the resulting 128x128 binary image on the intermediate canvas
+    intermediateCtx.putImageData(myImageData, 0, 0);
+
+    // Update canvasOnnx with the processed image
+    const finalCanvas = document.getElementById("canvasOnnx");
+    const finalCtx = finalCanvas.getContext("2d");
+    finalCanvas.width = 128;  // Match original canvas size
+    finalCanvas.height = 128;
+    finalCtx.clearRect(0, 0, finalCanvas.width, finalCanvas.height);  // Clear previous content
+    finalCtx.drawImage(intermediateCanvas, 0, 0, 128, 128, 0, 0, finalCanvas.width, finalCanvas.height);
+}
+
+//////////////ONNX ENDS/////////////////
+
+
+        // Log function to display messages
+        function logMessage(message) {
+            log.textContent = `${message}`;
+            log.scrollTop = log.scrollHeight;
+        }
+
+        // Access the webcam
+        async function startVideoStream() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            video1.srcObject = stream;
+            processFrame();
+        }
+
+const canvas2 = document.getElementById('canvasZY');
+const ctx2 = canvas2.getContext('2d');
+
+const canvasZY = document.getElementById('canvasZY');
+const ctxZY = canvasZY.getContext('2d');
+
+// Capture and process the frame in real-time
+function processFrame() {
+    requestAnimationFrame(processFrame);
+    ctx1.drawImage(video1, 0, 0, 128, 128);  // Draw the image onto canvas1 (XY)
+    ctx2.drawImage(video1, 0, 0, 128, 128);  // Draw the image onto canvas2 (original colored image)
+    ctxZY.drawImage(video1, 0, 0, 128, 128); // Draw the image onto canvasZY (ZY)
+
+    <!-- const imgData = ctx1.getImageData(0, 0, 128, 128); -->
+    <!-- const threshold = thresholdSlider.value; -->
+
+    <!-- for (let i = 0; i < imgData.data.length; i += 4) { -->
+        <!-- const avg = (imgData.data[i] + imgData.data[i + 1] + imgData.data[i + 2]) / 3; -->
+        <!-- let value = avg < threshold ? 0 : 255; -->
+
+        <!-- if (isInverted) { -->
+            <!-- value = 255 - value; -->
+        <!-- } -->
+
+        <!-- imgData.data[i] = value; -->
+        <!-- imgData.data[i + 1] = value; -->
+        <!-- imgData.data[i + 2] = value; -->
+    <!-- } -->
+
+    <!-- ctx1.putImageData(imgData, 0, 0);  // Thresholded XY image -->
+}
+
+
+        // Function to invert colors
+        <!-- invertButton.addEventListener('click', () => { -->
+            <!-- isInverted = !isInverted; -->
+            <!-- logMessage(`Pretējās krāsas: ${isInverted}`); -->
+        <!-- }); -->
+
+let savedXYData = null;
+let savedZYData = null;
+
+xyButton.addEventListener('click', async () => {
+    console.log('bg removal!');
+    await bgRemoval();  // Ensure bgRemoval() completes before proceeding
+
+    // Save color data from canvas2 (XY plane)
+    savedXYData = ctx2.getImageData(0, 0, 128, 128);
+    processXY();
+});
+
+
+// Function to process XY plane
+function processXY() {
+    const imgData = finalCtx.getImageData(0, 0, 128, 128);
+    pointsXY = new Array(128).fill().map(() => new Array(128).fill(false));
+
+    for (let y = 0; y < 128; y++) {
+        for (let x = 0; x < 128; x++) {
+            const pixelIndex = (y * 128 + x) * 4;
+            if (imgData.data[pixelIndex] === 0) {
+                for (let z = 0; z < 128; z++) {
+                    pointsXY[x][y] = true;
+                }
+            }
+        }
+    }
+    logMessage("XY attēls procesēts");
+}
+
+// Process ZY plane and save the image data
+zyButton.addEventListener('click', async () => {
+	console.log('bg removal!');
+	await bgRemoval();
+	
+    savedZYData = ctx2.getImageData(0, 0, 128, 128); // Save color data from canvasZY (ZY plane)
+    processZY();
+});
+
+
+        function processZY() {
+            const imgData = finalCtx.getImageData(0, 0, 128, 128);
+            pointsZY = new Array(128).fill().map(() => new Array(128).fill(false));
+
+            for (let y = 0; y < 128; y++) {
+                for (let z = 0; z < 128; z++) {
+                    const pixelIndex = (y * 128 + z) * 4;
+                    if (imgData.data[pixelIndex] === 0) {
+                        for (let x = 0; x < 128; x++) {
+                            pointsZY[z][y] = true;
+                        }
+                    }
+                }
+            }
+            logMessage("ZY attēls procesēts");
+        }
+		
+		
+		
+		
+function findCommonPoints() {
+    commonPoints = [];
+
+    // Use saved image data instead of drawing new frames
+    const colorDataXY = savedXYData;
+    const colorDataZY = savedZYData;
+
+    if (!colorDataXY || !colorDataZY) {
+        logMessage("Nav datu no XY un ZY attēliem.");
+        return;
+    }
+
+    let sumX = 0, sumY = 0, sumZ = 0, count = 0;
+
+    for (let x = 0; x < 128; x++) {
+        for (let y = 0; y < 128; y++) {
+            for (let z = 0; z < 128; z++) {
+                if (pointsXY[x][y] && pointsZY[z][y]) {
+                    const pixelIndexXY = (y * 128 + x) * 4;  // Index for XY colors
+                    const pixelIndexZY = (y * 128 + z) * 4;  // Index for ZY colors
+
+                    // Get colors from both XY and ZY saved image data
+                    const rZY = colorDataXY.data[pixelIndexXY];
+                    const gZY = colorDataXY.data[pixelIndexXY + 1];
+                    const bZY = colorDataXY.data[pixelIndexXY + 2];
+
+                    const rXY = colorDataZY.data[pixelIndexZY];
+                    const gXY = colorDataZY.data[pixelIndexZY + 1];
+                    const bXY = colorDataZY.data[pixelIndexZY + 2];
+
+                    // Average the colors from XY and ZY planes
+                    const r = Math.floor((rXY + rZY) / 2);
+                    const g = Math.floor((gXY + gZY) / 2);
+                    const b = Math.floor((bXY + bZY) / 2);
+
+                    // Add point to commonPoints
+                    commonPoints.push({ x, y, z, color: { r, g, b } });
+
+                    // Sum the coordinates for averaging later
+                    sumX += x;
+                    sumY += y;
+                    sumZ += z;
+                    count++;
+                }
+            }
+        }
+    }
+
+    // Calculate the average coordinates
+    const avgX = sumX / count;
+    const avgY = sumY / count;
+    const avgZ = sumZ / count;
+
+    // Adjust points to center at (0, 0, 0)
+    for (let i = 0; i < commonPoints.length; i++) {
+        commonPoints[i].x -= avgX;
+        commonPoints[i].y -= avgY;
+        commonPoints[i].z -= avgZ;
+    }
+}
+
+
+
+        // Download and visualize the point cloud
+        downloadButton.addEventListener('click', () => {
+            <!-- findCommonPoints(); -->
+			downloadPointCloud();
+        });
+
+function downloadPointCloud() {
+    findCommonPoints();
+
+    // Start building the PLY header
+    let plyData = `ply\n`;
+    plyData += `format ascii 1.0\n`;
+    plyData += `element vertex ${commonPoints.length}\n`;
+    plyData += `property float x\n`;
+    plyData += `property float y\n`;
+    plyData += `property float z\n`;
+    plyData += `property uchar red\n`;
+    plyData += `property uchar green\n`;
+    plyData += `property uchar blue\n`;
+    plyData += `end_header\n`;
+
+    // Add each point with color
+    commonPoints.forEach(point => {
+        const { x, y, z, color } = point;
+        // Format each line: x y z r g b
+        plyData += `${x} ${-y} ${z} ${color.r} ${color.g} ${color.b}\n`;
+    });
+
+    // Create a Blob and initiate download
+    const blob = new Blob([plyData], { type: 'text/plain' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = '3dPunkti.ply';  // Save as .ply file
+    link.click();
+
+    visualizePointCloud();  // Call the visualization function (if needed)
+}
+let material;
+
+function visualizePointCloud() {
+    threeContainer.innerHTML = '';
+    scene = new THREE.Scene();
+    camera = new THREE.PerspectiveCamera(75, threeContainer.clientWidth / threeContainer.clientHeight, 0.1, 1500);
+    renderer = new THREE.WebGLRenderer();
+    renderer.setSize(threeContainer.clientWidth, threeContainer.clientHeight);
+    threeContainer.appendChild(renderer.domElement);
+
+    const geometry = new THREE.BufferGeometry();
+    const vertices = [];
+    const colors = [];
+
+    commonPoints.forEach(point => {
+        const { x, y, z, color } = point;
+
+        // Push point vertices, scaling them for visibility
+        vertices.push(x * 10, -y * 10, z * 10);  // Scale by 10 for visibility
+
+        // Push the RGB color as a normalized value (between 0 and 1)
+        colors.push(color.r / 255, color.g / 255, color.b / 255);
+    });
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geometry.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));  // Set colors
+
+    // Initialize material with initial thresholdSlider value
+    material = new THREE.PointsMaterial({ vertexColors: true, size: thresholdSlider.value, sizeAttenuation: false });
+    pointCloud = new THREE.Points(geometry, material);
+    scene.add(pointCloud);
+
+    // Move camera closer to point cloud for better visibility
+    camera.position.set(0, 250, 1000);  // Adjust camera distance
+
+    function animate() {
+        requestAnimationFrame(animate);
+        pointCloud.rotation.y += 0.005;  // Rotate around Y-axis
+        renderer.render(scene, camera);
+    }
+
+    animate();
+
+    // Add event listener to update point size when thresholdSlider changes
+    thresholdSlider.addEventListener('input', () => {
+        material.size = thresholdSlider.value;  // Update point size dynamically
+    });
+}
+
+
+
+        <!-- // Reset the point cloud and memory -->
+        <!-- newPointCloudButton.addEventListener('click', () => { -->
+            <!-- pointsXY = []; -->
+            <!-- pointsZY = []; -->
+            <!-- commonPoints = []; -->
+            <!-- threeContainer.innerHTML = ''; -->
+            <!-- logMessage("Jauns punktu mākonis. Tam atmiņa atbrīvota."); -->
+        <!-- }); -->
+
+        // Start video stream
+        startVideoStream();
+    </script>
+</body>
+</html>
