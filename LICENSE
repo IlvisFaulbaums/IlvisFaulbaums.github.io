@@ -27,9 +27,18 @@ SOFTWARE.
 This project uses the following third-party libraries under their respective licenses:
 
 ### u2net.onnx
-- **Copyright**: (C) [year] [author/organization]
-- **License**: [license link or text]
+- **Copyright**: (C) [2020] [{Qin, Xuebin and Zhang, Zichen and Huang, Chenyang and Dehghan, Masood and Zaiane, Osmar and Jagersand, Martin}
+- **License**: Apache License 2.0
 - **Description**: u2net.onnx is a pre-trained model for image segmentation tasks.
+
+@InProceedings{Qin_2020_PR,
+title = {U2-Net: Going Deeper with Nested U-Structure for Salient Object Detection},
+author = {Qin, Xuebin and Zhang, Zichen and Huang, Chenyang and Dehghan, Masood and Zaiane, Osmar and Jagersand, Martin},
+journal = {Pattern Recognition},
+volume = {106},
+pages = {107404},
+year = {2020}
+}
 
 ### three.js
 - **Copyright**: (C) 2010-2022 three.js authors (https://threejs.org/)
